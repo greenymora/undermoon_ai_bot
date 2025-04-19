@@ -1,0 +1,41 @@
+{
+  "channel_type": "wechatcom_app",
+  "model": "deepseek-chat",
+  "open_ai_api_key": "sk-e13902ba5da6409e88abef1cf0ada3a5",
+  "claude_api_key": "YOUR API KEY",
+  "open_ai_api_base": "https://api.deepseek.com/v1",  
+  "text_to_image": "dall-e-2",
+  "voice_to_text": "openai",
+  "text_to_voice": "openai",
+  "proxy": "",
+  "hot_reload": false,
+  "single_chat_prefix": [""],
+  "single_chat_reply_prefix": "",
+  "group_chat_prefix": [
+    "@bot"
+  ],
+  "group_name_white_list": [
+    "ChatGPT测试群",
+    "ChatGPT测试群2"
+  ],
+  "image_create_prefix": [
+    "画"
+  ],
+  "speech_recognition": true,
+  "group_speech_recognition": false,
+  "voice_reply_voice": false,
+  "conversation_max_tokens": 8192,
+  "expires_in_seconds": 3600,
+  "character_desc_file": "character_desc.txt",
+  "temperature": 1,
+  "subscribe_msg": "感谢您的关注！\n这里是AI智能助手，可以自由对话。\n支持语音对话。\n支持图片输入。\n支持图片输出，画字开头的消息将按要求创作图片。\n支持tool、角色扮演和文字冒险等丰富的插件。\n输入{trigger_prefix}#help 查看详细指令。",
+  "use_linkai": false,
+  "linkai_api_key": "",
+  "linkai_app_code": "",
+  "wechatcom_corp_id": "ww977cc3262f1ba7d8",  
+  "wechatcomapp_port": 9898, 
+  "wechatcomapp_agent_id": "1000002",  
+  "wechatcomapp_secret": "msE5TKqksWPs5blc1pRo2KAsI4yadzeTrYIHVR8xw-I", 
+  "wechatcomapp_token": "jQWindPblsVWPTh",  
+  "wechatcomapp_aes_key": "CTraa2I2UAzquRef1CZFRjDd06YudVIjuda34Uvmfbk"
+}

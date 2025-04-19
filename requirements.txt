@@ -1,0 +1,10 @@
+openai
+HTMLParser>=0.0.2
+PyQRCode==1.2.1
+qrcode
+requests
+chardet
+Pillow
+pre-commit
+web.py
+linkai
