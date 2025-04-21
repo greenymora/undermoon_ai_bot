@@ -41,6 +41,8 @@
   "wechatmp_token": "UndermoonAiBotWechatToken",
   "wechatmp_port": 9899,
   "chat_record_analysis_enabled": true,
+  "chat_record_direct_process": false,
+  "use_simple_image_process": true,
   "wechatmp_app_id": "wx9b6342077b9259c4",
   "wechatmp_app_secret": "1dbe56e39f2d20498ed2a3b3d2a7b1f8",
   "wechatmp_aes_key": "wGePRuYPUvIPi1pMIov1bJMpt3XcKNHCsvo0h0W02Mk"

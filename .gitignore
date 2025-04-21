@@ -3,7 +3,8 @@ myenv/
 venv/
 env/
 .env/
-
+nohup.out
+user_datas.pkl
 # 缓存文件
 __pycache__/
 *.py[cod]
