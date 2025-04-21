@@ -1,5 +1,5 @@
 {
-  "channel_type": "wechatcom_app",
+  "channel_type": "wechatmp_service",
   "model": "deepseek-chat",
   "open_ai_api_key": "sk-e13902ba5da6409e88abef1cf0ada3a5",
   "claude_api_key": "YOUR API KEY",
@@ -37,5 +37,11 @@
   "wechatcomapp_agent_id": "1000002",  
   "wechatcomapp_secret": "msE5TKqksWPs5blc1pRo2KAsI4yadzeTrYIHVR8xw-I", 
   "wechatcomapp_token": "jQWindPblsVWPTh",  
-  "wechatcomapp_aes_key": "CTraa2I2UAzquRef1CZFRjDd06YudVIjuda34Uvmfbk"
+  "wechatcomapp_aes_key": "CTraa2I2UAzquRef1CZFRjDd06YudVIjuda34Uvmfbk",
+  "wechatmp_token": "UndermoonAiBotWechatToken",
+  "wechatmp_port": 9899,
+  "chat_record_analysis_enabled": true,
+  "wechatmp_app_id": "wx9b6342077b9259c4",
+  "wechatmp_app_secret": "1dbe56e39f2d20498ed2a3b3d2a7b1f8",
+  "wechatmp_aes_key": "wGePRuYPUvIPi1pMIov1bJMpt3XcKNHCsvo0h0W02Mk"
 }
