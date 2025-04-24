@@ -318,10 +318,32 @@ class Query:
             elif msg.type == "event":
                 logger.info("[wechatmp] Event {} from {}".format(msg.event, msg.source))
                 if msg.event in ["subscribe", "subscribe_scan"]:
-                    reply_text = subscribe_msg()
-                    if reply_text:
-                        replyPost = create_reply(reply_text, msg)
-                        return encrypt_func(replyPost.render())
+                    # 获取用户ID
+                    from_user_id = msg.source
+                    channel = WechatMPChannel()
+                    
+                    # 发送多条欢迎消息
+                    welcome_messages = [
+                        "人类，你是怎么找到我的？ 还挺前卫... 😄",
+                        "礼貌自我介绍一下吧。其实呢...😊我11月老部门搞了一款帮你们拆红线的APP，在它上线之前，就派我这个情商最高的先来微信教你们聊聊天。",
+                        "先说好，我是很有道德底线的🧐—切聊天技术，都比不上当面表达真心。我要教你的...👍 是如何学会用心沟通而已",
+                        "不过本神略已下凡... 须得遵守你们几间条例😄 先签了这份契约",
+                        "https://undermoon.net/AI_bot/privacy"
+                    ]
+                    
+                    # 不使用官方配置的订阅消息，直接发送自定义的欢迎消息
+                    # 依次发送5条欢迎消息
+                    for i, message in enumerate(welcome_messages):
+                        try:
+                            # 延迟发送，避免消息发送过快
+                            time.sleep(0.5)
+                            channel._send_text_message(from_user_id, message)
+                            logger.info(f"[wechatmp] 已发送第{i+1}条欢迎消息给用户 {from_user_id}")
+                        except Exception as e:
+                            logger.error(f"[wechatmp] 发送欢迎消息失败: {str(e)}")
+                    
+                    # 返回空回复，因为我们已经通过客服消息发送了欢迎语
+                    return "success"
                 else:
                     return "success"
             else:
