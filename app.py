@@ -10,6 +10,7 @@ from common import const
 from config import load_config
 from plugins import *
 import threading
+from api.privacy_api import app as privacy_app
 
 
 def sigterm_handler_wrap(_signo):
@@ -59,6 +60,9 @@ def run():
             os.environ["WECHATY_LOG"] = "warn"
 
         start_channel(channel_name)
+
+        # 挂载隐私API服务到主应用
+        app.mount('/privacy', privacy_app)
 
         while True:
             time.sleep(1)

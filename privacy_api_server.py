@@ -1,0 +1,205 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import web
+import json
+import sys
+import os
+import signal
+from service.privacy_service import privacy_service
+from common.log import logger
+import requests
+from config import conf
+
+# 定义URL路由
+urls = (
+    '/api/privacy/check', 'CheckPrivacyConsent',
+    '/api/privacy/update', 'UpdatePrivacyConsent',
+    '/', 'Index',
+    '/api/wechat/openid', 'WechatOpenId',
+)
+
+class Index:
+    """主页，用于测试服务是否正常运行"""
+    def GET(self):
+        web.header('Content-Type', 'application/json')
+        return json.dumps({
+            'status': 'running',
+            'service': 'Privacy Consent API',
+            'endpoints': [
+                {'path': '/api/privacy/check', 'method': 'GET', 'description': '查询用户隐私协议同意状态'},
+                {'path': '/api/privacy/update', 'method': 'POST', 'description': '更新用户隐私协议同意状态'}
+            ]
+        })
+
+class CheckPrivacyConsent:
+    """查询用户隐私协议同意状态API"""
+    def GET(self):
+        try:
+            # 设置响应头
+            web.header('Content-Type', 'application/json')
+            web.header('Access-Control-Allow-Origin', '*')  # 允许跨域访问
+            
+            # 获取请求参数
+            params = web.input()
+            user_id = params.get('user_id')
+            
+            if not user_id:
+                return json.dumps({
+                    'code': 400,
+                    'message': '缺少必要参数user_id',
+                    'data': None
+                })
+            
+            # 查询用户隐私协议同意状态
+            has_consented = privacy_service.check_privacy_agreed(user_id)
+            
+            return json.dumps({
+                'code': 200,
+                'message': 'success',
+                'data': {
+                    'user_id': user_id,
+                    'has_consented': has_consented
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"[PrivacyAPI] 查询隐私协议状态失败: {str(e)}")
+            return json.dumps({
+                'code': 500,
+                'message': f'服务器内部错误: {str(e)}',
+                'data': None
+            })
+
+class UpdatePrivacyConsent:
+    """更新用户隐私协议同意状态API"""
+    def POST(self):
+        try:
+            # 设置响应头
+            web.header('Content-Type', 'application/json')
+            web.header('Access-Control-Allow-Origin', '*')  # 允许跨域访问
+            
+            # 获取请求参数
+            try:
+                data = json.loads(web.data().decode('utf-8'))
+            except:
+                return json.dumps({
+                    'code': 400,
+                    'message': '无效的JSON数据',
+                    'data': None
+                })
+                
+            user_id = data.get('user_id')
+            has_consented = data.get('has_consented', True)
+            device_id = data.get('device_id')
+            
+            if not user_id:
+                return json.dumps({
+                    'code': 400,
+                    'message': '缺少必要参数user_id',
+                    'data': None
+                })
+            
+            # 获取客户端IP地址
+            ip_address = web.ctx.env.get('REMOTE_ADDR')
+            
+            # 更新用户隐私协议同意状态
+            if has_consented:
+                success = privacy_service.set_privacy_agreed(user_id, device_id, ip_address)
+                
+                if success:
+                    return json.dumps({
+                        'code': 200,
+                        'message': '更新成功',
+                        'data': {
+                            'user_id': user_id,
+                            'has_consented': True
+                        }
+                    })
+                else:
+                    return json.dumps({
+                        'code': 500,
+                        'message': '更新失败',
+                        'data': None
+                    })
+            else:
+                return json.dumps({
+                    'code': 400,
+                    'message': '不支持取消同意操作',
+                    'data': None
+                })
+                
+        except Exception as e:
+            logger.error(f"[PrivacyAPI] 更新隐私协议状态失败: {str(e)}")
+            return json.dumps({
+                'code': 500,
+                'message': f'服务器内部错误: {str(e)}',
+                'data': None
+            })
+    
+    def OPTIONS(self):
+        """处理预检请求"""
+        web.header('Access-Control-Allow-Origin', '*')
+        web.header('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        web.header('Access-Control-Allow-Headers', 'Content-Type')
+        return ''
+
+class WechatOpenId:
+    """根据code换取微信openid"""
+    def GET(self):
+        web.header('Content-Type', 'application/json')
+        web.header('Access-Control-Allow-Origin', '*')
+        params = web.input()
+        code = params.get('code')
+        if not code:
+            return json.dumps({'code': 400, 'message': '缺少code参数', 'data': None})
+
+        # 从config.json读取
+        appid = conf().get('wechatmp_app_id')
+        secret = conf().get('wechatmp_app_secret')
+        if not appid or not secret:
+            return json.dumps({'code': 500, 'message': '未配置微信appid或secret', 'data': None})
+
+        url = f"https://api.weixin.qq.com/sns/oauth2/access_token?appid={appid}&secret={secret}&code={code}&grant_type=authorization_code"
+        try:
+            resp = requests.get(url, timeout=5)
+            data = resp.json()
+            if 'errcode' in data and data['errcode'] != 0:
+                return json.dumps({'code': 500, 'message': f"微信接口错误: {data.get('errmsg')}", 'data': data})
+            openid = data.get('openid')
+            if not openid:
+                return json.dumps({'code': 500, 'message': '未获取到openid', 'data': data})
+            return json.dumps({'code': 200, 'message': 'success', 'data': {'openid': openid}})
+        except Exception as e:
+            return json.dumps({'code': 500, 'message': f'服务器异常: {str(e)}', 'data': None})
+
+# 创建应用
+app = web.application(urls, globals())
+
+# 处理中断信号
+def sigterm_handler(signum, frame):
+    """处理终止信号"""
+    print(f"收到信号 {signum}，正在关闭服务...")
+    sys.exit(0)
+
+def run_server(port=9900):
+    """运行服务器"""
+    # 注册信号处理器
+    signal.signal(signal.SIGINT, sigterm_handler)  # Ctrl+C
+    signal.signal(signal.SIGTERM, sigterm_handler)  # kill
+    
+    # 设置监听端口
+    sys.argv = ['privacy_api_server.py', f'{port}']
+    
+    print(f"隐私协议API服务正在启动，端口: {port}")
+    print("可用的API端点:")
+    print("- GET /api/privacy/check?user_id=xxx  查询用户隐私协议同意状态")
+    print("- POST /api/privacy/update  更新用户隐私协议同意状态")
+    
+    # 启动服务器
+    app.run()
+
+if __name__ == "__main__":
+    # 如果提供了自定义端口，使用它
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 9900
+    run_server(port) 

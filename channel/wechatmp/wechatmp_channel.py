@@ -27,6 +27,7 @@ from config import conf
 from voice.audio_convert import any_to_mp3, split_audio
 from channel.wechatmp.wechatmp_message import WeChatMPMessage
 from common.tmp_dir import TmpDir
+from service.privacy_service import privacy_service
 
 # If using SSL, uncomment the following lines, and modify the certificate path.
 # from cheroot.server import HTTPServer
@@ -70,7 +71,7 @@ class WechatMPChannel(ChatChannel):
             t = threading.Thread(target=self.start_loop, args=(self.delete_media_loop,))
             t.setDaemon(True)
             t.start()
-
+            
     def startup(self):
         if self.passive_reply:
             urls = ("/wx", "channel.wechatmp.passive_reply.Query")
@@ -692,3 +693,82 @@ class WechatMPChannel(ChatChannel):
             logger.error(f"[wechatmp] 发送错误消息失败: {str(e)}")
             import traceback
             logger.error(f"[wechatmp] 发送错误消息异常堆栈: {traceback.format_exc()}")
+
+    def check_privacy_agreed(self, user_id):
+        """检查用户是否同意隐私政策（通过API查询）"""
+        try:
+            api_url = "http://0.0.0.0:9900/api/privacy/check"  # 独立API地址
+            response = requests.get(f"{api_url}?user_id={user_id}", timeout=3)
+            
+            if response.status_code == 200:
+                result = response.json()
+                if result['code'] == 200:
+                    has_consented = result['data']['has_consented']
+                    logger.info(f"[wechatmp] 查询用户 {user_id} 隐私协议同意状态: {has_consented}")
+                    return has_consented
+            
+            logger.error(f"[wechatmp] API查询失败，状态码: {response.status_code}")
+            # 如果API不可用，默认用户未同意，确保隐私安全
+            return False
+        except Exception as e:
+            logger.error(f"[wechatmp] 查询用户隐私协议状态失败: {str(e)}")
+            # 发生异常时，默认用户未同意
+            return False
+
+    def set_privacy_agreed(self, user_id):
+        """设置用户已同意隐私政策（通过API更新）"""
+        try:
+            api_url = "http://0.0.0.0:9900/api/privacy/update"  # 独立API地址
+            
+            # 获取用户IP和设备ID（如果有）
+            ip_address = web.ctx.env.get('REMOTE_ADDR') if hasattr(web, 'ctx') else None
+            device_id = None  # 微信公众号场景下可能无法获取设备ID
+            
+            data = {
+                "user_id": user_id,
+                "has_consented": True,
+                "device_id": device_id,
+                "ip_address": ip_address
+            }
+            
+            response = requests.post(api_url, json=data, timeout=3)
+            
+            if response.status_code == 200:
+                result = response.json()
+                if result['code'] == 200:
+                    logger.info(f"[wechatmp] 更新用户 {user_id} 隐私协议同意状态成功")
+                    return True
+            
+            logger.error(f"[wechatmp] API更新失败，状态码: {response.status_code}")
+            return False
+        except Exception as e:
+            logger.error(f"[wechatmp] 更新用户隐私协议状态失败: {str(e)}")
+            return False
+
+    def get_privacy_notice(self, user_id):
+        """获取隐私政策提醒消息"""
+        messages = [
+            "本神不可随意窥探人心😞 你先签了这份契约...!!!",
+            "⬇️点下方链接同意使用协议⬇️",
+            "https://undermoon.net/AI_bot/privacy"
+        ]
+        return messages
+
+    def is_agree_privacy(self, content):
+        """判断用户消息是否为同意隐私政策"""
+        # 检查是否包含同意隐私政策的关键词
+        agree_keywords = ["同意", "agree", "我同意", "ok", "好的", "接受", "accept", "是", "yes", "确认", "嗯嗯", "嗯", "好", "行", "可以"]
+        
+        # 将用户输入转为小写，并去除空格
+        content = content.lower().strip()
+        
+        # 优先检查点击链接的标志
+        if "点下方链接同意使用协议" in content or "同意使用协议" in content:
+            return True
+        
+        # 检查是否为单独的同意关键词
+        for keyword in agree_keywords:
+            if content == keyword.lower():
+                return True
+            
+        return False

@@ -49,6 +49,16 @@ class Query:
                 from_user_id = msg.source
                 to_user_id = msg.target
                 
+                # 检查用户是否同意隐私政策
+                if not channel.check_privacy_agreed(from_user_id):
+                    # 如果用户未同意隐私政策，发送隐私政策提醒
+                    privacy_messages = channel.get_privacy_notice(from_user_id)
+                    for privacy_msg in privacy_messages:
+                        channel._send_text_message(from_user_id, privacy_msg)
+                    
+                    # 返回成功，不继续处理消息
+                    return "success"
+                
                 # 获取图片媒体ID
                 media_id = msg.media_id
                 
@@ -100,6 +110,40 @@ class Query:
                 from_user = wechatmp_msg.from_user_id
                 content = wechatmp_msg.content
                 message_id = wechatmp_msg.msg_id
+
+                # 检查用户是否同意隐私政策
+                if not channel.check_privacy_agreed(from_user):
+                    # 检查用户消息是否为同意隐私政策
+                    if msg.type == "text" and channel.is_agree_privacy(content):
+                        # 设置用户已同意隐私政策
+                        channel.set_privacy_agreed(from_user)
+                        reply_text = "感谢您同意使用协议，现在可以正常使用本服务了！"
+                        replyPost = create_reply(reply_text, msg)
+                        return encrypt_func(replyPost.render())
+                    else:
+                        # 如果用户未同意隐私政策，发送隐私政策提醒
+                        privacy_messages = channel.get_privacy_notice(from_user)
+                        for privacy_msg in privacy_messages:
+                            channel._send_text_message(from_user, privacy_msg)
+                        # 返回成功，不继续处理消息
+                        return "success"
+
+                # 新增：如果数据库查不到该用户（即首次发消息的历史用户），发送三条欢迎消息
+                # 这里假设 check_privacy_agreed 返回 False 表示数据库无记录
+                if not channel.check_privacy_agreed(from_user):
+                    welcome_messages = [
+                        "人类，你是怎么找到我的？ 还挺前卫... 😄",
+                        "礼貌自我介绍一下吧。其实呢...😊我是月老部门搞了一款帮你们拆红线的APP，在它上线之前，就派我这个情商最高的先来微信教你们聊聊天。",
+                        "先说好，我是很有道德底线的🧐—切聊天技术，都比不上当面表达真心。我要教你的...👍 是如何学会用心沟通而已"
+                    ]
+                    for i, message in enumerate(welcome_messages):
+                        try:
+                            time.sleep(0.5)
+                            channel._send_text_message(from_user, message)
+                        except Exception as e:
+                            logger.error(f"[wechatmp] 历史用户欢迎消息发送失败: {str(e)}")
+                    # 只发一次欢迎消息，后续消息不再重复
+                    # 可以在数据库插入一条记录，或设置一个缓存避免重复
 
                 supported = True
                 if "【收到不支持的消息类型，暂无法显示】" in content:
