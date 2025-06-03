@@ -1,6 +1,9 @@
 # encoding:utf-8
 
 import time
+import os
+import json
+import datetime
 
 import openai
 import openai.error
@@ -104,11 +107,9 @@ class ChatGPTBot(Bot, OpenAIImage):
             if model:
                 new_args = self.args.copy()
                 new_args["model"] = model
-            # if context.get('stream'):
-            #     # reply in stream
-            #     return self.reply_text_stream(query, new_query, session_id)
 
-            reply_content = self.reply_text(session, api_key, args=new_args)
+            # 恢复到非流式调用和处理逻辑
+            reply_content = self.reply_text(session, api_key, args=new_args, context=context) # 恢复调用 reply_text 获取完整回复
             logger.debug(
                 "[CHATGPT] new_query={}, session_id={}, reply_cont={}, completion_tokens={}".format(
                     session.messages,
@@ -120,12 +121,13 @@ class ChatGPTBot(Bot, OpenAIImage):
             if reply_content["completion_tokens"] == 0 and len(reply_content["content"]) > 0:
                 reply = Reply(ReplyType.ERROR, reply_content["content"])
             elif reply_content["completion_tokens"] > 0:
+                # 在非流式模式下，将完整回复添加到 session
                 self.sessions.session_reply(reply_content["content"], session_id, reply_content["total_tokens"])
                 reply = Reply(ReplyType.TEXT, reply_content["content"])
             else:
                 reply = Reply(ReplyType.ERROR, reply_content["content"])
                 logger.debug("[CHATGPT] reply {} used 0 tokens.".format(reply_content))
-            return reply
+            return reply # 返回 Reply 对象
 
         elif context.type == ContextType.IMAGE_CREATE:
             ok, retstring = self.create_img(query, 0)
@@ -139,7 +141,7 @@ class ChatGPTBot(Bot, OpenAIImage):
             reply = Reply(ReplyType.ERROR, "Bot不支持处理{}类型的消息".format(context.type))
             return reply
 
-    def reply_text(self, session, api_key=None, args=None):
+    def reply_text(self, session, api_key=None, args=None, context=None):
         # 使用默认参数，如果没有提供
         default_args = {
             "model": conf().get("model") or "gpt-3.5-turbo",
@@ -147,68 +149,73 @@ class ChatGPTBot(Bot, OpenAIImage):
             "max_tokens": conf().get("conversation_max_tokens", 1500),  # 使用 conversation_max_tokens
             "top_p": conf().get("top_p", 1.0),
             "frequency_penalty": conf().get("frequency_penalty", 0.0),
-            "presence_penalty": conf().get("presence_penalty", 0.0)
+            "presence_penalty": conf().get("presence_penalty", 0.0),
+            # 移除 stream=True 参数
+            # "stream": True,
         }
-        
+
         # 合并默认参数和提供的参数
         if args:
             for key, value in args.items():
                 default_args[key] = value
-        
+
         args = default_args
-        
+
         # 记录会话消息
         logger.info(f"[CHATGPT] 会话ID: {session.session_id}")
         logger.info(f"[CHATGPT] 会话消息数量: {len(session.messages)}")
         logger.info(f"[CHATGPT] 会话消息: {session.messages}")
-        
+
         if api_key is not None:
             openai.api_key = api_key
-        
+
         # 确保使用正确的API基础URL
         api_base = conf().get("open_ai_api_base")
         if api_base:
             openai.api_base = api_base
             logger.info(f"[CHATGPT] Using API base: {api_base}")
-        
+
         # 记录模型信息
         model = args.get("model")
         logger.info(f"[CHATGPT] Using model: {model}")
-        
+
         try:
             # 确保传递完整的会话历史
+            # 恢复为非流式调用
             response = openai.ChatCompletion.create(
-                model=args["model"],
+                **args, # 使用解包的方式传递所有参数
                 messages=session.messages,  # 传递完整的会话历史
-                temperature=args["temperature"],
-                max_tokens=args["max_tokens"],
-                top_p=args["top_p"],
-                frequency_penalty=args["frequency_penalty"],
-                presence_penalty=args["presence_penalty"],
             )
             # 记录API响应
             logger.debug(f"[CHATGPT] Response: {response}")
-            
-            # 处理响应
+
+            # 处理非流式响应
             reply = response.choices[0].message.content
             usage = response.usage
             logger.info(f"[CHATGPT] Reply: {reply[:100]}...")  # 记录回复的前100个字符
             logger.info(f"[CHATGPT] Usage: {usage}")
-            
-            # 将助手回复添加到会话中
-            session.append_message("assistant", reply)
-            
+
+            # 在非流式模式下，不需要在这里添加到 session，由 reply 方法处理
+            # session.append_message("assistant", reply)
+
             return {
                 "content": reply,
                 "completion_tokens": usage.completion_tokens,
                 "total_tokens": usage.total_tokens,
             }
+
         except Exception as e:
             # 详细记录异常
             logger.error(f"[CHATGPT] Exception: {e}")
             import traceback
             logger.error(f"[CHATGPT] Traceback: {traceback.format_exc()}")
-            return {"content": f"API调用出错: {e}", "completion_tokens": 0, "total_tokens": 0}
+            # 异常发生时，返回错误信息
+            error_message = f"AI 回复生成出错: {e}"
+            # 非流式模式下，错误通过返回值传递，不在 reply_text 里直接发送
+            # if context and context.get('wechatmp_channel'):
+            #      context['wechatmp_channel'].send(Reply(ReplyType.ERROR, error_message), context)
+
+            return {"content": error_message, "completion_tokens": 0, "total_tokens": 0}
 
 
 class AzureChatGPTBot(ChatGPTBot):
@@ -286,3 +293,25 @@ class AzureChatGPTBot(ChatGPTBot):
                 return False, "图片生成失败"
         else:
             return False, "图片生成失败，未配置text_to_image参数"
+
+def save_chatlog_local(user_id, content, msg_type):
+    log_dir = "chatlogs"
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+    log_file = os.path.join(log_dir, f"{user_id}.jsonl")
+    log_entry = {
+        "timestamp": datetime.datetime.now().isoformat(),
+        "content": content,
+        "msg_type": msg_type
+    }
+    with open(log_file, "a", encoding="utf-8") as f:
+        f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+
+def get_user_chatlog_local(user_id, limit=100):
+    log_file = os.path.join("chatlogs", f"{user_id}.jsonl")
+    if not os.path.exists(log_file):
+        return []
+    with open(log_file, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+    # 取最新的limit条
+    return [json.loads(line) for line in lines[-limit:]]

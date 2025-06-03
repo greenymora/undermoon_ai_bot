@@ -1,0 +1,13 @@
+{
+    "enable_prompt_enhancement": true,
+    "use_detailed_analysis": true,
+    "analysis_categories": [
+        "性格特点",
+        "事业发展",
+        "财富运势",
+        "健康状况",
+        "家庭关系",
+        "婚姻状况",
+        "学业运势"
+    ]
+} 

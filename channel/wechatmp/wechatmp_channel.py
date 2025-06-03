@@ -71,7 +71,7 @@ class WechatMPChannel(ChatChannel):
             t = threading.Thread(target=self.start_loop, args=(self.delete_media_loop,))
             t.setDaemon(True)
             t.start()
-            
+        
     def startup(self):
         if self.passive_reply:
             urls = ("/wx", "channel.wechatmp.passive_reply.Query")
@@ -193,13 +193,36 @@ class WechatMPChannel(ChatChannel):
         else:
             if reply.type == ReplyType.TEXT or reply.type == ReplyType.INFO or reply.type == ReplyType.ERROR:
                 reply_text = reply.content
-                texts = split_string_by_utf8_length(reply_text, MAX_UTF8_LEN)
-                if len(texts) > 1:
-                    logger.info("[wechatmp] text too long, split into {} parts".format(len(texts)))
-                for i, text in enumerate(texts):
-                    self.client.message.send_text(receiver, text)
-                    if i != len(texts) - 1:
-                        time.sleep(0.5)  # 休眠0.5秒，防止发送过快乱序
+                MAX_UTF8_LEN = conf().get("single_reply_max_len", 1800) # 微信单条消息限制
+
+                # 新的智能拆分逻辑
+                current_segment = ""
+                sentences = re.split(r'([。？！.?!\n])', reply_text) # 按标点和换行符分割，并保留分隔符
+
+                for i, sentence in enumerate(sentences):
+                    if not sentence:
+                        continue
+
+                    # 计算当前段落加上下一个句子的长度
+                    test_segment = current_segment + sentence
+
+                    # 如果加上当前句子不超过最大长度，则添加到当前段落
+                    if len(test_segment.encode('utf-8')) <= MAX_UTF8_LEN:
+                        current_segment = test_segment
+                    else:
+                        # 如果当前段落不为空，发送当前段落
+                        if current_segment:
+                            self.client.message.send_text(receiver, current_segment.strip())
+                            logger.info(f"[wechatmp] 发送拆分消息到 {receiver}: {current_segment.strip()[:50]}...")
+                            time.sleep(0.5) # 每发送一条消息后休眠
+                        # 开始新的段落，当前句子作为新段落的开头
+                        current_segment = sentence
+
+                # 发送最后剩余的段落
+                if current_segment:
+                     self.client.message.send_text(receiver, current_segment.strip())
+                     logger.info(f"[wechatmp] 发送最后拆分消息到 {receiver}: {current_segment.strip()[:50]}...")
+
                 logger.info("[wechatmp] Do send text to {}: {}".format(receiver, reply_text))
             elif reply.type == ReplyType.VOICE:
                 try:
@@ -372,6 +395,22 @@ class WechatMPChannel(ChatChannel):
                 logger.info("[wechatmp] 开始整理聊天记录")
                 chat_history = self._organize_chat_history(result[0])
                 logger.info(f"[wechatmp] 整理后的聊天记录: {chat_history[:100]}...")
+                # 新增：获取最近N条历史，拼接成deepseek多轮结构
+                try:
+                    from bot.chatgpt.chat_gpt_bot import get_user_chatlog_local
+                    N = 5  # 可根据需要调整
+                    history = get_user_chatlog_local(from_user_id, limit=N)
+                    deepseek_history = []
+                    for item in history:
+                        role = "user" if item.get("msg_type") == "text" else "assistant"
+                        deepseek_history.append({"role": role, "content": item["content"]})
+                    # OCR识别内容作为新一条user消息
+                    deepseek_history.append({"role": "user", "content": chat_history})
+                    logger.info(f"[wechatmp][ocr] deepseek历史结构: {deepseek_history}")
+                    # 你可以在这里将 deepseek_history 作为上下文发给 deepseek
+                    # 例如: send_to_deepseek(deepseek_history)
+                except Exception as e:
+                    logger.error(f"[wechatmp][ocr] 获取历史记录失败: {e}")
             except Exception as e:
                 logger.error(f"[wechatmp] 整理聊天记录异常: {str(e)}")
                 import traceback
@@ -443,12 +482,11 @@ class WechatMPChannel(ChatChannel):
             self._send_text_message(from_user_id, "处理图片时出现错误，请稍后重试。")
 
     def _organize_chat_history(self, ocr_result):
-        """整理OCR识别出的聊天记录，去除不必要的信息"""
+        """整理OCR识别出的聊天记录，去除不必要的信息和无效内容"""
+        import re
         try:
             # 按照文本在图片中的位置排序（从上到下）
             sorted_texts = sorted(ocr_result, key=lambda x: x[0][0][1])  # 按y坐标排序
-            
-            # 记录所有识别出的文本，用于调试
             all_texts = []
             for item in sorted_texts:
                 if len(item) >= 2:
@@ -459,97 +497,68 @@ class WechatMPChannel(ChatChannel):
                     else:
                         continue
                     all_texts.append(text)
-            
             logger.info(f"[wechatmp] 所有识别出的文本: {all_texts}")
-            
-            # 提取文本内容和位置信息
             text_items = []
             for item in sorted_texts:
-                # 检查OCR结果格式
                 if len(item) >= 2:
                     if isinstance(item[1], tuple) and len(item[1]) >= 1:
-                        text = item[1][0]  # 获取识别出的文本
-                        confidence = item[1][1] if len(item[1]) > 1 else 0.5  # 获取置信度
+                        text = item[1][0]
+                        confidence = item[1][1] if len(item[1]) > 1 else 0.5
                     elif isinstance(item[1], str):
                         text = item[1]
-                        confidence = 0.5  # 默认置信度
+                        confidence = 0.5
                     else:
                         continue
                 else:
                     continue
-                
-                # 跳过置信度过低的文本
                 if confidence < 0.6:
                     continue
-                
-                # 跳过空文本
                 if not text or len(text.strip()) == 0:
                     continue
-                
+                # 新增：过滤无效内容
+                content = re.sub(r"^(我|对方)[:：]?", "", text).strip()
+                if len(content) <= 1:
+                    continue
+                if any(x in content for x in ["空格", "发送"]):
+                    continue
+                if re.fullmatch(r"[\d\W_]+", content):
+                    continue
                 # 获取文本的位置信息
                 if len(item[0]) > 0:
-                    # 获取左上角y坐标（用于判断是否在屏幕顶部）
                     top_y = item[0][0][1] if len(item[0][0]) > 1 else 0
-                    # 获取左上角x坐标（用于判断左右位置）
                     left_x = item[0][0][0] if len(item[0][0]) > 0 else 0
                 else:
                     top_y = 0
                     left_x = 0
-                
-                # 添加到列表，包含文本内容、位置信息
                 text_items.append((text, left_x, top_y))
-            
             # 只过滤明确的状态栏信息，不过滤整个顶部区域
             filtered_items = []
             for item in text_items:
                 text, left_x, top_y = item
-                
-                # 过滤明确的状态栏信息模式
                 status_bar_patterns = [
-                    r'^\d+%$',  # 电量百分比，如"58%"
-                    r'^\d+:\d+$',  # 时间格式，如"12:34"
-                    r'^[0-9]+G$',  # 网络标识，如"4G"、"5G"
-                    r'^WIFI$|^WiFi$',  # WIFI标识
-                    r'^[0-9]+:[0-9]+\s*(AM|PM)$',  # 12小时制时间，如"12:34 PM"
+                    r'^\d+%$', r'^\d+:\d+$', r'^[0-9]+G$', r'^WIFI$|^WiFi$', r'^[0-9]+:[0-9]+\s*(AM|PM)$',
                 ]
-                
                 is_status_bar = False
                 for pattern in status_bar_patterns:
                     if re.match(pattern, text):
-                        is_status_bar = True
                         logger.info(f"[wechatmp] 过滤掉状态栏信息: {text}")
+                        is_status_bar = True
                         break
-                
                 if is_status_bar:
                     continue
-                
-                # 保留所有其他文本
                 filtered_items.append(item)
-            
             text_items = filtered_items
-            
-            # 根据位置信息整理聊天记录
             chat_lines = []
-            
-            # 计算水平中点，用于区分左右两侧的消息
             if text_items:
                 all_x = [item[1] for item in text_items]
                 mid_x = sum(all_x) / len(all_x)
             else:
                 mid_x = 0
-            
-            # 过滤常见的时间戳模式
             time_patterns = [
-                r'^\d{1,2}:\d{2}$',  # 匹配独立的 "12:34" 格式
-                r'^\d{4}/\d{1,2}/\d{1,2}$',  # 匹配独立的 "2023/4/21" 格式
-                r'^\d{4}-\d{1,2}-\d{1,2}$',  # 匹配独立的 "2023-4-21" 格式
+                r'^\d{1,2}:\d{2}$', r'^\d{4}/\d{1,2}/\d{1,2}$', r'^\d{4}-\d{1,2}-\d{1,2}$',
             ]
-            
-            # 处理每一行文本
             for item in text_items:
                 text, left_x, _ = item
-                
-                # 跳过可能是独立时间戳的行
                 is_time = False
                 for pattern in time_patterns:
                     if re.match(pattern, text):
@@ -557,45 +566,24 @@ class WechatMPChannel(ChatChannel):
                         break
                 if is_time:
                     continue
-                
-                # 处理可能包含名称的文本
-                # 微信聊天中常见的格式是"名字: 消息内容"
                 name_match = re.match(r'^([^:：]+)[:：]\s*(.*)', text)
                 if name_match:
                     name = name_match.group(1).strip()
                     content = name_match.group(2).strip()
-                    
-                    # 如果提取出的内容为空，则使用原文本
                     if not content:
                         content = text
-                        
-                    # 使用提取出的内容
                     text = content
-                
-                # 跳过过短的文本（可能是噪声）
                 if len(text) < 1:
                     continue
-                
-                # 根据位置确定是对方还是自己的消息
                 is_self = left_x > mid_x
-                
-                # 格式化聊天行
                 if is_self:
                     formatted_line = f"我: {text}"
                 else:
                     formatted_line = f"对方: {text}"
-                
                 chat_lines.append(formatted_line)
-            
-            # 合并文本行
             chat_history = "\n".join(chat_lines)
-            
-            # 简单清理
             chat_history = chat_history.replace("  ", " ").strip()
-            
-            # 记录最终的聊天记录
             logger.info(f"[wechatmp] 最终整理的聊天记录: {chat_history}")
-            
             return chat_history
         except Exception as e:
             logger.error(f"[wechatmp] 整理聊天记录异常: {str(e)}")

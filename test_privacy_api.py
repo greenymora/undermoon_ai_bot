@@ -7,7 +7,7 @@ import sys
 import time
 
 # 服务器地址配置
-API_SERVER = "http://0.0.0.0:9900"  # 独立隐私协议API服务地址
+API_SERVER = "http://localhost:9900"  # 独立隐私协议API服务地址
 
 def test_privacy_api():
     """测试隐私协议API"""

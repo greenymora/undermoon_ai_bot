@@ -20,6 +20,10 @@
             "enabled": false,
             "priority": 0
         },
+        "ZiweiAstro": {
+            "enabled": true,
+            "priority": 0
+        },
         "Role": {
             "enabled": true,
             "priority": 0

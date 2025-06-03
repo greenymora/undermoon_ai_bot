@@ -184,6 +184,7 @@ available_setting = {
     "Minimax_base_url": "",
     "web_port": 9899,
     "character_desc_file": "",
+    "single_reply_max_len": int,
 }
 
 

@@ -67,6 +67,10 @@ class Query:
                     
                     # 检查配置是否启用聊天记录分析
                     if conf().get("chat_record_analysis_enabled", False):
+                        # 新增：发送正在分析图片的提示消息
+                        prompt_message = "正在分析图片中的聊天记录，这可能需要一些时间..."
+                        channel._send_text_message(from_user_id, prompt_message)
+
                         # 检查是否使用直接处理模式（用于调试）
                         if conf().get("chat_record_direct_process", False):
                             try:
@@ -164,6 +168,10 @@ class Query:
                     logger.debug("[wechatmp] context: {} {} {}".format(context, wechatmp_msg, supported))
 
                     if supported and context:
+                        # 新增：发送正在生成回复的提示消息
+                        prompt_message = "正在生成回复，请稍候..."
+                        channel._send_text_message(from_user, prompt_message)
+
                         channel.running.add(from_user)
                         channel.produce(context)
                     else:
