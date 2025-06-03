@@ -4,7 +4,6 @@
 import web
 import json
 import sys
-import os
 import signal
 from service.privacy_service import privacy_service
 from common.log import logger
@@ -79,45 +78,6 @@ class CheckPrivacyConsent:
             })
 
 class UpdatePrivacyConsent:
-
-    def _send_confirmation_message(self, user_id):
-        """向用户发送隐私协议确认消息"""
-        try:
-            # 导入微信公众号客户端
-            from channel.wechatmp.wechatmp_client import WechatMPClient
-            
-            # 获取微信配置
-            appid = conf().get('wechatmp_app_id')
-            secret = conf().get('wechatmp_app_secret')
-            
-            if not appid or not secret:
-                logger.error("[PrivacyAPI] 微信公众号配置不完整，无法发送消息")
-                return False
-            
-            # 创建微信客户端
-            client = WechatMPClient(appid, secret)
-            
-            # 发送确认消息
-            seccess_notify = """看来你已立契~ 本神现在的业务有：
-
-                                1. 教你该怎么跟对面的人聊
-                                2. 分析聊天记录，指点一二
-                                3. 分析聊天记录，指点一二
-
-                                偶尔本神心情不错的时候，也会破例陪你聊个天🤷 不过先交代清楚➡️ 你是男是女？喜欢男的还是女的？"""
-                            
-            try:
-                # 发送消息
-                client.message.send_text(user_id, seccess_notify)
-            except Exception as e:
-                logger.error(f"[PrivacyAPI] 发送第确认消息失败: {str(e)}")
-                raise e
-            return True
-        except Exception as e:
-            logger.error(f"[PrivacyAPI] 发送确认消息异常: {str(e)}")
-            return False
-    
-
     """更新用户隐私协议同意状态API"""
     def POST(self):
         try:
@@ -162,7 +122,7 @@ class UpdatePrivacyConsent:
                 if success:
                     # 发送确认消息给用户
                     try:
-                        self._send_confirmation_message(user_id)
+                        privacy_service.agree_notify(user_id)
                         logger.info(f"[PrivacyAPI] 已向用户 {user_id} 发送隐私协议确认消息")
                     except Exception as e:
                         logger.error(f"[PrivacyAPI] 发送确认消息失败: {str(e)}")
