@@ -79,12 +79,12 @@ class UpdatePrivacyStatus:
 
         user_id = data.get('user_id')
         openid = data.get('openid')
-        status = data.get('status')
+        privacy_status = data.get('privacy_status')
 
-        if not status:
+        if not privacy_status:
             return json.dumps({
                 'code': 400,
-                'message': '缺少必要参数status',
+                'message': '缺少必要参数privacy_status',
                 'data': None
             })
 
@@ -95,8 +95,8 @@ class UpdatePrivacyStatus:
                 'data': None
             })
 
-        privacy_service.update_privacy_status(user_id, openid, status)
-        if status > 1:
+        privacy_service.update_privacy_status(user_id, openid, privacy_status)
+        if privacy_status > 1:
             privacy_service.send_agree_notify(openid)
 
         return json.dumps({
@@ -105,7 +105,7 @@ class UpdatePrivacyStatus:
             'data': {
                 'user_id': user_id,
                 'openid': openid,
-                'privacy_status': status
+                'privacy_status': privacy_status
             }
         })
 
