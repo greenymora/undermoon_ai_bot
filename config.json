@@ -1,5 +1,5 @@
 {
-  "channel_type": "wechatmp_service",
+  "channel_type": "wechatmp",
   "model": "deepseek-chat",
   "open_ai_api_key": "sk-e13902ba5da6409e88abef1cf0ada3a5",
   "claude_api_key": "YOUR API KEY",

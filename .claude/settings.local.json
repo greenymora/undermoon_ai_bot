@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/usr/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/x64-linux/rg \"def send\" channel/chat_channel.py -A 10)",
+      "Bash(/usr/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/x64-linux/rg \"def.*send\" channel/chat_channel.py -A 5)",
+      "Bash(/usr/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/x64-linux/rg \"_send_reply|def send\" channel/chat_channel.py -A 3 -B 3)",
+      "Bash(/usr/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/x64-linux/rg \"_send_reply|\\\"def send\\\"\" channel/chat_channel.py -A 3 -B 3)",
+      "Bash(/usr/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/x64-linux/rg \"_send_reply\" channel/chat_channel.py -A 3 -B 3)",
+      "Bash(/usr/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/x64-linux/rg \"self.send\\(\" channel/chat_channel.py -A 3 -B 3)",
+      "Bash(/usr/lib/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/x64-linux/rg \"def.*handle|def.*produce|def.*consume\" channel/chat_channel.py -A 5)"
+    ],
+    "deny": []
+  }
+}

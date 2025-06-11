@@ -2,6 +2,8 @@ import asyncio
 import time
 import threading
 import os
+import json
+import random
 
 import web
 from wechatpy import parse_message
@@ -18,6 +20,28 @@ from config import conf, subscribe_msg
 from common.tmp_dir import TmpDir
 from PIL import Image, ImageDraw, ImageFont
 import io
+from db.mysql.mysql_manager import mysql
+from db.mysql.model import User, Dialog, Notify
+from db.mysql.dao import notify_dao, user_dao, dialog_dao
+
+
+def hello_notify(user, channel, chating_hour=2):
+    """根据当前时间返回合适的问候回复"""
+    # 检查用户在过去 chating_hour 小时内是否有对话记录
+    has_dialog = dialog_dao.has_dialog_in_pass_time(user.id, chating_hour)
+
+    # 如果没有对话记录，查询时间段内的回复配置
+    if not has_dialog:
+        hello_notify = notify_dao.get_hello_notify()
+        channel._send_text_message(user.openid, hello_notify)
+
+
+def wait_notify(user, channel):
+    has_unreply_dialog = dialog_dao.has_unreply_dialog(user.id)
+
+    if has_unreply_dialog:
+        wait_notify = notify_dao.get_wait_notify()
+        channel._send_text_message(user.openid, wait_notify)
 
 
 # This class is instantiated once per query
@@ -42,29 +66,29 @@ class Query:
             else:
                 logger.debug("[wechatmp] Receive post data:\n" + message.decode("utf-8"))
             msg = parse_message(message)
-            
+
             # 处理图片消息，检查是否为聊天记录截图
             if msg.type == "image":
                 # 获取发送者和接收者信息
                 from_user_id = msg.source
                 to_user_id = msg.target
-                
+
                 # 检查用户是否同意隐私政策
                 if not channel.check_privacy_agreed(from_user_id):
                     # 如果用户未同意隐私政策，发送隐私政策提醒
                     privacy_messages = channel.get_privacy_notice(from_user_id)
                     for privacy_msg in privacy_messages:
                         channel._send_text_message(from_user_id, privacy_msg)
-                    
+
                     # 返回成功，不继续处理消息
                     return "success"
-                
+
                 # 获取图片媒体ID
                 media_id = msg.media_id
-                
+
                 if media_id:
                     logger.info(f"[wechatmp] 收到图片消息，media_id: {media_id}")
-                    
+
                     # 检查配置是否启用聊天记录分析
                     if conf().get("chat_record_analysis_enabled", False):
                         # 新增：发送正在分析图片的提示消息
@@ -98,7 +122,7 @@ class Query:
                             t.daemon = True  # 设置为守护线程
                             t.start()
                             logger.info(f"[wechatmp] 线程已启动，线程ID: {t.ident}")
-                            
+
                             # 返回提示消息
                             reply_text = "正在分析图片中的聊天记录，这可能需要几秒钟时间...\n分析完成后会自动回复结果，请稍候。"
                             reply = create_reply(reply_text, msg)
@@ -108,7 +132,7 @@ class Query:
                         reply_text = "聊天记录分析功能未启用，请在配置文件中设置 chat_record_analysis_enabled 为 true。"
                         reply = create_reply(reply_text, msg)
                         return encrypt_func(reply.render())
-            
+
             if msg.type in ["text", "voice", "image"]:
                 wechatmp_msg = WeChatMPMessage(msg, client=channel.client)
                 from_user = wechatmp_msg.from_user_id
@@ -168,6 +192,16 @@ class Query:
                     logger.debug("[wechatmp] context: {} {} {}".format(context, wechatmp_msg, supported))
 
                     if supported and context:
+                        # 在被动回复模式下也需要插入对话记录并获取dialog_id
+                        try:
+                            user = user_dao.get_user_by_openid(from_user)
+                            if user:
+                                # 插入对话记录并获取dialog_id
+                                dialog = dialog_dao.insert_dialog(user.id, msg.type, content)
+                                context['dialog_id'] = dialog.id
+                                logger.debug(f"[wechatmp] 被动回复模式插入对话记录，dialog_id: {dialog.id}")
+                        except Exception as e:
+                            logger.error(f"[wechatmp] 被动回复模式插入对话记录失败: {str(e)}")
                         # 新增：发送正在生成回复的提示消息
                         prompt_message = "正在生成回复，请稍候..."
                         channel._send_text_message(from_user, prompt_message)
@@ -306,57 +340,57 @@ class Query:
 
             elif msg.type == "text":
                 content = msg.content.strip()
-                
+
                 # 检查是否是测试OCR功能的命令
                 if content == "测试OCR" and conf().get("chat_record_analysis_enabled", False):
                     try:
                         # 创建一个简单的测试图片
                         from PIL import Image, ImageDraw, ImageFont
                         import io
-                        
+
                         # 创建一个白色背景的图片
                         img = Image.new('RGB', (400, 200), color = (255, 255, 255))
                         d = ImageDraw.Draw(img)
-                        
+
                         # 尝试加载字体，如果失败则使用默认字体
                         try:
                             font = ImageFont.truetype("simhei.ttf", 20)
                         except:
                             font = ImageFont.load_default()
-                        
+
                         # 在图片上写文字
-                        d.text((10,10), "对方: 你好，最近怎么样？", fill=(0,0,0), font=font)
-                        d.text((200,50), "我: 还不错，谢谢关心", fill=(0,0,0), font=font)
-                        d.text((10,90), "对方: 有空一起吃饭吧", fill=(0,0,0), font=font)
-                        d.text((200,130), "我: 好的，周末有空", fill=(0,0,0), font=font)
-                        
+                        d.text((10, 10), "对方: 你好，最近怎么样？", fill=(0, 0, 0), font=font)
+                        d.text((200, 50), "我: 还不错，谢谢关心", fill=(0, 0, 0), font=font)
+                        d.text((10, 90), "对方: 有空一起吃饭吧", fill=(0, 0, 0), font=font)
+                        d.text((200, 130), "我: 好的，周末有空", fill=(0, 0, 0), font=font)
+
                         # 保存图片到内存
                         img_io = io.BytesIO()
                         img.save(img_io, 'PNG')
                         img_io.seek(0)
-                        
+
                         # 保存到临时文件
                         test_image_path = TmpDir().path() + "ocr_test.png"
                         with open(test_image_path, 'wb') as f:
                             f.write(img_io.getvalue())
-                        
+
                         logger.info(f"[wechatmp] 创建测试图片: {test_image_path}")
-                        
+
                         # 上传图片到微信服务器
                         with open(test_image_path, 'rb') as f:
                             response = channel.client.media.upload("image", ("ocr_test.png", f, "image/png"))
-                        
+
                         if "media_id" in response:
                             media_id = response["media_id"]
                             logger.info(f"[wechatmp] 测试图片上传成功，media_id: {media_id}")
-                            
+
                             # 处理测试图片
                             channel._process_image_with_ocr(media_id, msg.source, msg.target)
-                            
+
                             reply_text = "OCR测试已启动，请等待结果。"
                         else:
                             reply_text = "上传测试图片失败。"
-                        
+
                         reply = create_reply(reply_text, msg)
                         return encrypt_func(reply.render())
                     except Exception as e:
@@ -373,7 +407,7 @@ class Query:
                     # 获取用户ID
                     from_user_id = msg.source
                     channel = WechatMPChannel()
-                    
+
                     # 发送多条欢迎消息
                     welcome_messages = [
                         "人类，你是怎么找到我的？ 还挺前卫... 😄",
@@ -382,7 +416,7 @@ class Query:
                         "不过本神略已下凡... 须得遵守你们几间条例😄 先签了这份契约",
                         "https://undermoon.net/AI_bot/privacy"
                     ]
-                    
+
                     # 不使用官方配置的订阅消息，直接发送自定义的欢迎消息
                     # 依次发送5条欢迎消息
                     for i, message in enumerate(welcome_messages):
@@ -393,7 +427,7 @@ class Query:
                             logger.info(f"[wechatmp] 已发送第{i+1}条欢迎消息给用户 {from_user_id}")
                         except Exception as e:
                             logger.error(f"[wechatmp] 发送欢迎消息失败: {str(e)}")
-                    
+
                     # 返回空回复，因为我们已经通过客服消息发送了欢迎语
                     return "success"
                 else:
@@ -407,26 +441,26 @@ class Query:
 
     def _handle_text_message(self, msg, encrypt_func):
         content = msg.content.strip()
-        
+
         # 检查是否是手动触发聊天记录分析的命令
         if content == "分析最近图片" and conf().get("chat_record_analysis_enabled", False):
             # 获取用户最近发送的图片
             from_user_id = msg.source
             to_user_id = msg.target
-            
+
             # 返回提示消息
             reply_text = "请先发送一张聊天记录截图，然后我会为您分析。"
             reply = create_reply(reply_text, msg)
             return encrypt_func(reply.render())
 
-    # 在处理图片消息部分添加简化处理选项
-    if conf().get("use_simple_image_process", False):
-        # 使用简化版处理
-        threading.Thread(
-            target=channel._simple_process_image,
-            args=(media_id, from_user_id, to_user_id)
-        ).start()
-        
-        reply_text = "正在处理您的图片，请稍候..."
-        reply = create_reply(reply_text, msg)
-        return encrypt_func(reply.render())
+        # 在处理图片消息部分添加简化处理选项
+        if conf().get("use_simple_image_process", False):
+            # 使用简化版处理
+            threading.Thread(
+                target=channel._simple_process_image,
+                args=(media_id, from_user_id, to_user_id)
+            ).start()
+
+            reply_text = "正在处理您的图片，请稍候..."
+            reply = create_reply(reply_text, msg)
+            return encrypt_func(reply.render())

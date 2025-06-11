@@ -61,9 +61,6 @@ def run():
 
         start_channel(channel_name)
 
-        # 挂载隐私API服务到主应用
-        app.mount('/privacy', privacy_app)
-
         while True:
             time.sleep(1)
     except Exception as e:

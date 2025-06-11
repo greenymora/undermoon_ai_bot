@@ -27,7 +27,8 @@ from config import conf
 from voice.audio_convert import any_to_mp3, split_audio
 from channel.wechatmp.wechatmp_message import WeChatMPMessage
 from common.tmp_dir import TmpDir
-from service.privacy_service import privacy_service
+from db.mysql.model import User, Dialog, Notify
+from db.mysql.dao import user_dao, dialog_dao, notify_dao
 
 # If using SSL, uncomment the following lines, and modify the certificate path.
 # from cheroot.server import HTTPServer
@@ -44,6 +45,7 @@ except Exception as e:
     logger.error(f"[wechatmp] PaddleOCR初始化失败: {str(e)}")
     import traceback
     logger.error(f"[wechatmp] PaddleOCR初始化异常堆栈: {traceback.format_exc()}")
+
 
 @singleton
 class WechatMPChannel(ChatChannel):
@@ -71,7 +73,7 @@ class WechatMPChannel(ChatChannel):
             t = threading.Thread(target=self.start_loop, args=(self.delete_media_loop,))
             t.setDaemon(True)
             t.start()
-        
+
     def startup(self):
         if self.passive_reply:
             urls = ("/wx", "channel.wechatmp.passive_reply.Query")
@@ -217,13 +219,15 @@ class WechatMPChannel(ChatChannel):
                             time.sleep(0.5) # 每发送一条消息后休眠
                         # 开始新的段落，当前句子作为新段落的开头
                         current_segment = sentence
-
                 # 发送最后剩余的段落
                 if current_segment:
                      self.client.message.send_text(receiver, current_segment.strip())
                      logger.info(f"[wechatmp] 发送最后拆分消息到 {receiver}: {current_segment.strip()[:50]}...")
 
+                if context.get("dialog_id"):
+                    dialog_dao.update_dialog_reply(context["dialog_id"], reply_text)
                 logger.info("[wechatmp] Do send text to {}: {}".format(receiver, reply_text))
+
             elif reply.type == ReplyType.VOICE:
                 try:
                     file_path = reply.content
@@ -344,16 +348,16 @@ class WechatMPChannel(ChatChannel):
         """处理图片OCR并解析聊天记录"""
         try:
             logger.info(f"[wechatmp] 开始处理图片OCR，media_id={media_id}")
-            
+
             # 先发送一条消息安抚用户
             self._send_text_message(from_user_id, "已收到您的图片，正在分析中，这可能需要10-20秒时间...")
-            
+
             # 下载图片
             image_path = TmpDir().path() + media_id + ".png"
-            
+
             try:
                 response = self.client.media.download(media_id)
-                
+
                 if response.status_code == 200:
                     with open(image_path, "wb") as f:
                         f.write(response.content)
@@ -366,7 +370,7 @@ class WechatMPChannel(ChatChannel):
                 logger.error(f"[wechatmp] 下载图片异常: {str(e)}")
                 self._send_text_message(from_user_id, "下载图片时出错，请稍后重试。")
                 return
-            
+
             # 进行OCR识别
             try:
                 logger.info("[wechatmp] 开始OCR识别")
@@ -384,12 +388,12 @@ class WechatMPChannel(ChatChannel):
                 logger.error(f"[wechatmp] OCR异常堆栈: {traceback.format_exc()}")
                 self._send_text_message(from_user_id, "OCR识别过程中出现错误，请稍后重试。")
                 return
-            
+
             if not result or len(result) == 0 or not result[0]:
                 logger.error("[wechatmp] OCR结果为空")
                 self._send_text_message(from_user_id, "未能识别出图片中的文字，请确保图片清晰可读。")
                 return
-            
+
             # 提取识别出的文本并整理聊天记录
             try:
                 logger.info("[wechatmp] 开始整理聊天记录")
@@ -417,19 +421,19 @@ class WechatMPChannel(ChatChannel):
                 logger.error(f"[wechatmp] 整理聊天记录异常堆栈: {traceback.format_exc()}")
                 self._send_text_message(from_user_id, "整理聊天记录时出现错误，请稍后重试。")
                 return
-            
+
             if not chat_history:
                 logger.error("[wechatmp] 未能识别出有效的聊天记录")
                 self._send_text_message(from_user_id, "未能识别出有效的聊天记录，请确保图片包含清晰的对话内容。")
                 return
-            
+
             # 发送最后一条进度消息
             self._send_text_message(from_user_id, "聊天记录提取完成，正在分析对话内容...")
-            
+
             # 构建提示信息，告诉AI这是聊天记录
             prompt = f"以下是一段微信聊天记录截图中提取的文本，请帮我分析并解读对话内容，理清对话的逻辑和情感：\n\n{chat_history}"
             logger.info(f"[wechatmp] 构建的提示信息: {prompt[:100]}...")
-            
+
             # 清理临时文件
             try:
                 if os.path.exists(image_path):
@@ -437,7 +441,7 @@ class WechatMPChannel(ChatChannel):
                     logger.info(f"[wechatmp] 已删除临时文件: {image_path}")
             except Exception as e:
                 logger.error(f"[wechatmp] 删除临时文件异常: {str(e)}")
-            
+
             # 创建一个自定义消息封装类，适配微信公众号消息格式
             logger.info("[wechatmp] 创建自定义消息对象")
             class CustomMsg:
@@ -448,13 +452,13 @@ class WechatMPChannel(ChatChannel):
                     self.content = prompt
                     self.source = from_user_id
                     self.target = to_user_id
-            
+
             # 创建消息对象
             custom_msg = CustomMsg()
-            
+
             # 使用与WeChatMPMessage相同的接口创建消息对象
             wechatmp_msg = WeChatMPMessage(custom_msg, client=self.client)
-            
+
             # 创建上下文
             context = self._compose_context(
                 wechatmp_msg.ctype,
@@ -462,19 +466,30 @@ class WechatMPChannel(ChatChannel):
                 isgroup=False,
                 msg=wechatmp_msg,
             )
-            
+
             # 设置会话ID
             if context:
                 context['session_id'] = f"user_{from_user_id}"
                 context['receiver'] = from_user_id
                 
+                # 为OCR处理的消息也插入对话记录并获取dialog_id
+                try:
+                    user = user_dao.get_user_by_openid(from_user_id)
+                    if user:
+                        # 插入对话记录并获取dialog_id
+                        dialog = dialog_dao.insert_dialog(user.id, "image", prompt)
+                        context['dialog_id'] = dialog.id
+                        logger.debug(f"[wechatmp] OCR处理插入对话记录，dialog_id: {dialog.id}")
+                except Exception as e:
+                    logger.error(f"[wechatmp] OCR处理插入对话记录失败: {str(e)}")
+
                 # 将消息传递给AI处理
                 logger.info(f"[wechatmp] 将OCR识别的聊天记录传递给AI处理")
                 self.produce(context)
             else:
                 logger.error("[wechatmp] 无法创建有效的上下文")
                 self._send_text_message(from_user_id, "处理聊天记录时出现错误，请稍后重试。")
-            
+
         except Exception as e:
             import traceback
             logger.error(f"[wechatmp] OCR处理异常: {str(e)}")
@@ -595,13 +610,13 @@ class WechatMPChannel(ChatChannel):
         """简化版图片处理函数，用于测试基本功能"""
         try:
             logger.info(f"[wechatmp] 开始简化处理图片，media_id={media_id}")
-            
+
             # 下载图片
             image_path = TmpDir().path() + media_id + ".png"
-            
+
             try:
                 response = self.client.media.download(media_id)
-                
+
                 if response.status_code == 200:
                     with open(image_path, "wb") as f:
                         f.write(response.content)
@@ -612,10 +627,10 @@ class WechatMPChannel(ChatChannel):
             except Exception as e:
                 logger.error(f"[wechatmp] 下载图片异常: {str(e)}")
                 return
-            
+
             # 构建简单的回复
             prompt = "我已收到您的图片，但由于OCR服务可能存在问题，无法进行文字识别。这是一个简化的回复，用于测试基本功能是否正常。"
-            
+
             # 创建一个自定义消息
             class CustomMsg:
                 def __init__(self):
@@ -625,13 +640,13 @@ class WechatMPChannel(ChatChannel):
                     self.content = prompt
                     self.source = from_user_id
                     self.target = to_user_id
-            
+
             # 创建消息对象
             custom_msg = CustomMsg()
-            
+
             # 使用与WeChatMPMessage相同的接口创建消息对象
             wechatmp_msg = WeChatMPMessage(custom_msg, client=self.client)
-            
+
             # 创建上下文
             context = self._compose_context(
                 wechatmp_msg.ctype,
@@ -639,18 +654,29 @@ class WechatMPChannel(ChatChannel):
                 isgroup=False,
                 msg=wechatmp_msg,
             )
-            
+
             # 设置会话ID
             if context:
                 context['session_id'] = f"user_{from_user_id}"
                 context['receiver'] = from_user_id
                 
+                # 为简化处理的消息也插入对话记录并获取dialog_id
+                try:
+                    user = user_dao.get_user_by_openid(from_user_id)
+                    if user:
+                        # 插入对话记录并获取dialog_id
+                        dialog = dialog_dao.insert_dialog(user.id, "image", prompt)
+                        context['dialog_id'] = dialog.id
+                        logger.debug(f"[wechatmp] 简化处理插入对话记录，dialog_id: {dialog.id}")
+                except Exception as e:
+                    logger.error(f"[wechatmp] 简化处理插入对话记录失败: {str(e)}")
+
                 # 将消息传递给AI处理
                 logger.info(f"[wechatmp] 将简化消息传递给AI处理")
                 self.produce(context)
             else:
                 logger.error("[wechatmp] 无法创建有效的上下文")
-            
+
         except Exception as e:
             import traceback
             logger.error(f"[wechatmp] 简化处理异常: {str(e)}")
@@ -660,7 +686,7 @@ class WechatMPChannel(ChatChannel):
         """直接发送文本消息给用户"""
         try:
             logger.info(f"[wechatmp] 发送文本消息给用户 {user_id}: {text[:30]}...")
-            
+
             # 使用微信公众号的客服消息接口发送消息
             self.client.message.send_text(user_id, text)
             logger.info(f"[wechatmp] 文本消息发送成功")
@@ -673,7 +699,7 @@ class WechatMPChannel(ChatChannel):
         """发送错误消息给用户"""
         try:
             logger.info(f"[wechatmp] 发送错误消息给用户 {user_id}: {error_text}")
-            
+
             # 使用微信公众号的客服消息接口发送消息
             self.client.message.send_text(user_id, f"错误: {error_text}")
             logger.info(f"[wechatmp] 错误消息发送成功")
@@ -687,14 +713,14 @@ class WechatMPChannel(ChatChannel):
         try:
             api_url = "http://0.0.0.0:9900/api/privacy/check"  # 独立API地址
             response = requests.get(f"{api_url}?user_id={user_id}", timeout=3)
-            
+
             if response.status_code == 200:
                 result = response.json()
                 if result['code'] == 200:
                     has_consented = result['data']['has_consented']
                     logger.info(f"[wechatmp] 查询用户 {user_id} 隐私协议同意状态: {has_consented}")
                     return has_consented
-            
+
             logger.error(f"[wechatmp] API查询失败，状态码: {response.status_code}")
             # 如果API不可用，默认用户未同意，确保隐私安全
             return False
@@ -707,26 +733,26 @@ class WechatMPChannel(ChatChannel):
         """设置用户已同意隐私政策（通过API更新）"""
         try:
             api_url = "http://0.0.0.0:9900/api/privacy/update"  # 独立API地址
-            
+
             # 获取用户IP和设备ID（如果有）
             ip_address = web.ctx.env.get('REMOTE_ADDR') if hasattr(web, 'ctx') else None
             device_id = None  # 微信公众号场景下可能无法获取设备ID
-            
+
             data = {
                 "user_id": user_id,
                 "has_consented": True,
                 "device_id": device_id,
                 "ip_address": ip_address
             }
-            
+
             response = requests.post(api_url, json=data, timeout=3)
-            
+
             if response.status_code == 200:
                 result = response.json()
                 if result['code'] == 200:
                     logger.info(f"[wechatmp] 更新用户 {user_id} 隐私协议同意状态成功")
                     return True
-            
+
             logger.error(f"[wechatmp] API更新失败，状态码: {response.status_code}")
             return False
         except Exception as e:
@@ -746,17 +772,17 @@ class WechatMPChannel(ChatChannel):
         """判断用户消息是否为同意隐私政策"""
         # 检查是否包含同意隐私政策的关键词
         agree_keywords = ["同意", "agree", "我同意", "ok", "好的", "接受", "accept", "是", "yes", "确认", "嗯嗯", "嗯", "好", "行", "可以"]
-        
+
         # 将用户输入转为小写，并去除空格
         content = content.lower().strip()
-        
+
         # 优先检查点击链接的标志
         if "点下方链接同意使用协议" in content or "同意使用协议" in content:
             return True
-        
+
         # 检查是否为单独的同意关键词
         for keyword in agree_keywords:
             if content == keyword.lower():
                 return True
-            
+
         return False
