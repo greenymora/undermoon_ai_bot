@@ -4,9 +4,9 @@
 import web
 import json
 import sys
-import signal
-from service.privacy_service import privacy_service
 import requests
+
+from service.privacy_service import privacy_service
 from config import conf, load_config
 
 # 定义URL路由
@@ -50,14 +50,11 @@ class CheckPrivacyStatus:
             })
 
         privacy_status = privacy_service.check_privacy_agreed(user_id, openid)
-
         return json.dumps({
             'code': 200,
             'message': 'success',
             'data': {
-                'user_id': user_id,
-                'openid': openid,
-                'privacy_status': privacy_status
+                "privacy_status": privacy_status
             }
         })
 
@@ -96,6 +93,7 @@ class UpdatePrivacyStatus:
             })
 
         privacy_service.update_privacy_status(user_id, openid, privacy_status)
+
         if privacy_status > 1:
             privacy_service.send_agree_notify(openid)
 
@@ -126,17 +124,17 @@ class WechatOpenId:
         code = params.get('code')
         if not code:
             return json.dumps({
-                    'code': 400,
-                    'message': '缺少code参数',
-                    'data': None
-                })
+                'code': 400,
+                'message': '缺少code参数',
+                'data': None
+            })
         # 从config.json读取
         appid = conf().get('wechatmp_app_id')
         secret = conf().get('wechatmp_app_secret')
 
         if not appid or not secret:
             return json.dumps({
-                'code': 500, 
+                'code': 500,
                 'message': '未配置微信appid或secret',
                 'data': None
             })
@@ -147,7 +145,7 @@ class WechatOpenId:
             data = resp.json()
             if 'errcode' in data and data['errcode'] != 0:
                 return json.dumps({
-                    'code': 500, 
+                    'code': 500,
                     'message': f"微信接口错误: {data.get('errmsg')}",
                     'data': data
                 })
@@ -159,7 +157,7 @@ class WechatOpenId:
                     'data': data
                 })
             return json.dumps({
-                'code': 200, 
+                'code': 200,
                 'message': 'success',
                 'data': {'openid': openid}
             })
@@ -177,9 +175,6 @@ app = web.application(urls, globals())
 
 def run_server(port=9900):
     """运行服务器"""
-    # 注册信号处理器
-    signal.signal(signal.SIGINT, sigterm_handler)  # Ctrl+C
-    signal.signal(signal.SIGTERM, sigterm_handler)  # kill
 
     # 确保配置被正确加载
     try:
@@ -193,19 +188,12 @@ def run_server(port=9900):
     except Exception as e:
         print(f"加载配置时出错: {str(e)}")
 
-    # 设置监听端口
-    sys.argv = ['privacy_api_server.py', f'{port}']
-
     # 启动服务器
     app.run()
-
-def sigterm_handler(signum, frame):
-    """处理终止信号"""
-    print(f"收到信号 {signum}，正在关闭服务...")
-    sys.exit(0)
 
 
 if __name__ == "__main__":
     # 如果提供了自定义端口，使用它
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 9900
     run_server(port)
+    

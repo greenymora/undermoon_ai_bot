@@ -31,14 +31,26 @@ def update_user(user):
     if not user.id and not user.openid:
         raise ValueError("更新用户信息必须提供id或openid")
 
+    # 获取User模型的所有列名（排除不需要更新的字段）
+    exclude_fields = {'id', 'create_time', 'modify_time'}
+    
     sql = "update ab_user set "
-    temp = ""
-    for key, value in user.items():
-        if key == 'create_time' or key == 'modify_time':
+    update_params = []
+    update_values = []
+    
+    # 遍历User对象的所有属性
+    for column in user.__table__.columns:
+        field_name = column.name
+        if field_name in exclude_fields:
             continue
+            
+        # 获取属性值
+        value = getattr(user, field_name, None)
         if value is not None:
-            temp += f"{key} = {value}, "
-    if temp!= "":
-        temp = temp[0:len(temp)-2]
-        sql += temp + " where id = %s and openid = %s"
-        mysql.update(sql, (user.id, user.openid))
+            update_params.append(f"{field_name} = %s")
+            update_values.append(value)
+    
+    if update_params:
+        sql += ", ".join(update_params) + " where id = %s"
+        update_values.append(user.id)
+        mysql.update(sql, tuple(update_values))

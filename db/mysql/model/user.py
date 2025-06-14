@@ -22,8 +22,6 @@ class User(Base):
     nickname = Column(String(255), nullable=True, comment='昵称')
     avatar = Column(String(255), nullable=True, comment='头像地址')
     phone = Column(String(255), nullable=True, comment='手机号')
-    last_chat_time = Column(DateTime, nullable=True, default=func.now(), comment='最后一条消息发送时间')
-    unresponsive_count = Column(Integer, nullable=False, default=0, comment='未回复的消息数量')
     create_time = Column(DateTime, nullable=False, default=func.now(), comment='注册时间')
     modify_time = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now(), comment='更新时间')
     

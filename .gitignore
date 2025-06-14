@@ -1,42 +1,25 @@
-# 虚拟环境
-myenv/
-venv/
-env/
-.env/
-nohup.out
-user_datas.pkl
-# 缓存文件
+# Python字节码文件
 __pycache__/
 *.py[cod]
 *$py.class
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-.nox/
 
-# 日志文件
-*.log
-logs/
-cache/
+# 分发/打包
+dist/
+build/
+*.egg-info/
 
-# 本地配置文件
-config.0417.bak
-*.bak
+# 虚拟环境
+venv/
+env/
+.env/
+
+# IDE相关
+.idea/
+.vscode/
 *.swp
 *.swo
 
-# 构建目录
-build/
-dist/
-*.egg-info/
-setuptools-65.5.0/
-
-# IDE 相关
-.idea/
-.vscode/
-*.sublime-*
 
 # 系统文件
 .DS_Store
-Thumbs.db
+Thumbs.db 
