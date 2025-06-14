@@ -173,7 +173,7 @@ class WechatOpenId:
 app = web.application(urls, globals())
 
 
-def run_server(port=9900):
+def run_server(port):
     """运行服务器"""
 
     # 确保配置被正确加载
@@ -188,12 +188,12 @@ def run_server(port=9900):
     except Exception as e:
         print(f"加载配置时出错: {str(e)}")
 
-    # 启动服务器
-    app.run()
+    # 启动服务器，使用正确的参数格式
+    web.httpserver.runsimple(app.wsgifunc(), ("0.0.0.0", port))
 
 
 if __name__ == "__main__":
     # 如果提供了自定义端口，使用它
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 9900
-    run_server(port)
+    run_server(port=port)
     
