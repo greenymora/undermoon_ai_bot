@@ -40,7 +40,7 @@ def handle_message(message, channel):
 def do_handle_message(message, channel):
     wechatmp_msg = WeChatMPMessage(message, client=channel.client)
     user = user_dao.get_user_by_openid(wechatmp_msg.from_user_id)
-    chat_history = dialog_dao.get_user_dialog(user.id)
+    chat_history = dialog_dao.get_replied_dialog(user.id)
     hello_notify(user, channel)
     wait_notify(user, channel)
 

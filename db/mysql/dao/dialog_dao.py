@@ -22,13 +22,19 @@ def get_dialog_by_id(id):
     return mysql.select_one("SELECT * FROM ab_dialog WHERE id = %s", (id,), Dialog)
 
 
-def get_dialogs_by_user_id(user_id, limit=5):
-    """根据用户ID获取对话列表"""
-    return mysql.select_list(
-        "SELECT * FROM ab_dialog WHERE user_id = %s ORDER BY ask_time DESC LIMIT %s",
+def get_replied_dialog(user_id, limit=5):
+    """根据用户ID获取已完成的对话列表，并转换为对话历史格式"""
+    dialogs = mysql.select_list(
+        "SELECT * FROM ab_dialog WHERE user_id = %s AND reply_time is not null ORDER BY ask_time DESC LIMIT %s",
         (user_id, limit,),
         Dialog
     )
+    dialogs.reverse()
+    history = []
+    for dialog in dialogs:
+        history.append({"role": "user", "content": dialog.ask_content})
+        history.append({"role": "assitant", "content": dialog.reply_content})
+    return history
 
 
 def get_latest_dialog_by_user_id(user_id):
@@ -69,13 +75,3 @@ def update_dialog_reply(dialog_id, reply_content):
         "UPDATE ab_dialog SET reply_content = %s, reply_time = NOW() WHERE id = %s",
         (reply_content, dialog_id)
     )
-
-
-def get_user_dialog(user_id, limit=5):
-    dialogs = get_dialogs_by_user_id(user_id, limit)
-    dialogs.reverse()
-    history = []
-    for dialog in dialogs:
-        history.append({"role": "user", "content": dialog.ask_content})
-        history.append({"role": "assitant", "content": dialog.reply_content})
-    return history
